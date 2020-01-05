@@ -3,7 +3,6 @@ package persistence
 import (
 	"encoding/hex"
 	"encoding/json"
-	"net/url"
 	"os"
 
 	"github.com/pkg/errors"
@@ -17,7 +16,7 @@ type out struct {
 
 var notSupportedError = errors.New("This dummy database engine (\"stdout\") does not support any sort of queries")
 
-func makeStdoutDatabase(_ *url.URL) (Database, error) {
+func makeStdoutDatabase(_ string) (Database, error) {
 	s := new(stdout)
 	s.encoder = json.NewEncoder(os.Stdout)
 	return s, nil
@@ -25,6 +24,10 @@ func makeStdoutDatabase(_ *url.URL) (Database, error) {
 
 type stdout struct {
 	encoder *json.Encoder
+}
+
+func (s *stdout) QueryTorrentById(id uint) (infoHash []byte, name string, files []File, discorveredTime int64, err error) {
+	panic("implement me")
 }
 
 func (s *stdout) Engine() databaseEngine {
@@ -40,7 +43,7 @@ func (s *stdout) DoesTorrentExist(infoHash []byte) (bool, error) {
 	return false, nil
 }
 
-func (s *stdout) AddNewTorrent(infoHash []byte, name string, files []File) error {
+func (s *stdout) AddNewTorrent(infoHash []byte, name string, files []File, discoveredTime int64) error {
 	err := s.encoder.Encode(out{
 		InfoHash: hex.EncodeToString(infoHash),
 		Name:     name,

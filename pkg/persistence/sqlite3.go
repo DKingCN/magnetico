@@ -22,17 +22,22 @@ type sqlite3Database struct {
 	conn *sql.DB
 }
 
-func makeSqlite3Database(url_ *url.URL) (Database, error) {
+func makeSqlite3Database(dataSource string) (Database, error) {
 	db := new(sqlite3Database)
 
-	dbDir, _ := path.Split(url_.Path)
-	if err := os.MkdirAll(dbDir, 0755); err != nil {
-		return nil, errors.Wrapf(err, "mkdirAll error for `%s`", dbDir)
+	url_, err := url.Parse(dataSource)
+	if err != nil {
+		return nil, errors.Wrapf(err, "dataSource is not a valid URI: `%s`", dataSource)
+	}
+	// only mkdir if dataSource is local URL
+	if url_.Scheme == "" || url_.Scheme == "file" {
+		dbDir, _ := path.Split(url_.Path)
+		if err := os.MkdirAll(dbDir, 0755); err != nil {
+			return nil, errors.Wrapf(err, "mkdirAll error for `%s`", dbDir)
+		}
 	}
 
-	var err error
-	url_.Scheme = ""
-	db.conn, err = sql.Open("sqlite3", url_.String())
+	db.conn, err = sql.Open("sqlite3", dataSource)
 	if err != nil {
 		return nil, errors.Wrap(err, "sql.Open")
 	}
@@ -93,7 +98,7 @@ func (db *sqlite3Database) DoesTorrentExist(infoHash []byte) (bool, error) {
 	return exists, nil
 }
 
-func (db *sqlite3Database) AddNewTorrent(infoHash []byte, name string, files []File) error {
+func (db *sqlite3Database) AddNewTorrent(infoHash []byte, name string, files []File, discoveredTime int64) error {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return errors.Wrap(err, "conn.Begin")
@@ -159,7 +164,7 @@ func (db *sqlite3Database) AddNewTorrent(infoHash []byte, name string, files []F
 			total_size,
 			discovered_on
 		) VALUES (?, ?, ?, ?);
-	`, infoHash, name, totalSize, time.Now().Unix())
+	`, infoHash, name, totalSize, discoveredTime)
 	if err != nil {
 		return errors.Wrap(err, "tx.Exec (INSERT OR REPLACE INTO torrents)")
 	}
@@ -229,6 +234,37 @@ func (db *sqlite3Database) GetNumberOfTorrents() (uint, error) {
 	} else {
 		return *n, nil
 	}
+}
+
+func (db *sqlite3Database) QueryTorrentById(id uint) (infoHash []byte, name string, files []File, discorveredTime int64,
+	err2 error) {
+	rows, err := db.conn.Query(fmt.Sprintf(`SELECT info_hash, name, discovered_on FROM torrents WHERE id=%d;`, id))
+	if err != nil {
+		return
+	}
+	defer closeRows(rows)
+	for rows.Next() {
+		if err := rows.Scan(&infoHash, &name, &discorveredTime); err != nil {
+			err2 = err
+			return
+		}
+	}
+
+	filerows, err := db.conn.Query(fmt.Sprintf(`SELECT size, path FROM files WHERE torrent_id=%d;`, id))
+	if err != nil {
+		return
+	}
+	defer closeRows(filerows)
+	for filerows.Next() {
+		file := File{}
+		if err := filerows.Scan(&file.Size, &file.Path); err != nil {
+			err2 = err
+			return
+		}
+		files = append(files, file)
+	}
+	err2 = nil
+	return
 }
 
 func (db *sqlite3Database) QueryTorrents(

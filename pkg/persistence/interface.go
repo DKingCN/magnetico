@@ -4,16 +4,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
-	"net/url"
-
 	"go.uber.org/zap"
 )
 
 type Database interface {
 	Engine() databaseEngine
 	DoesTorrentExist(infoHash []byte) (bool, error)
-	AddNewTorrent(infoHash []byte, name string, files []File) error
+	AddNewTorrent(infoHash []byte, name string, files []File, discoveredTime int64) error
 	Close() error
 
 	// GetNumberOfTorrents returns the number of torrents saved in the database. Might be an
@@ -40,6 +37,7 @@ type Database interface {
 	GetTorrent(infoHash []byte) (*TorrentMetadata, error)
 	GetFiles(infoHash []byte) ([]File, error)
 	GetStatistics(from string, n uint) (*Statistics, error)
+    QueryTorrentById(id uint) (infoHash []byte, name string, files []File, discorveredTime int64, err error)
 }
 
 type OrderingCriteria uint8
@@ -61,6 +59,7 @@ type databaseEngine uint8
 const (
 	Sqlite3 databaseEngine = 1
 	Stdout
+	Elasticsearch
 )
 
 type Statistics struct {
@@ -99,22 +98,23 @@ func (tm *TorrentMetadata) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func MakeDatabase(rawURL string, logger *zap.Logger) (Database, error) {
+func MakeDatabase(driver string, dataSource string, logger *zap.Logger) (Database, error) {
 	if logger != nil {
 		zap.ReplaceGlobals(logger)
 	}
 
-	url_, err := url.Parse(rawURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "url.Parse")
-	}
-
-	switch url_.Scheme {
+	switch driver {
 	case "sqlite3":
-		return makeSqlite3Database(url_)
+		return makeSqlite3Database(dataSource)
 
 	case "stdout":
-		return makeStdoutDatabase(url_)
+		return makeStdoutDatabase(dataSource)
+
+	case "es":
+		return makeElasticsearchDatabase(dataSource)
+
+	case "elasticsearch":
+		return makeElasticsearchDatabase(dataSource)
 
 	case "postgresql":
 		return nil, fmt.Errorf("postgresql is not yet supported")
@@ -123,7 +123,7 @@ func MakeDatabase(rawURL string, logger *zap.Logger) (Database, error) {
 		return nil, fmt.Errorf("mysql is not yet supported")
 
 	default:
-		return nil, fmt.Errorf("unknown URI scheme: `%s`", url_.Scheme)
+		return nil, fmt.Errorf("unknown URI scheme: `%s`", driver)
 	}
 }
 

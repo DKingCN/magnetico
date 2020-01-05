@@ -24,7 +24,8 @@ import (
 )
 
 type opFlags struct {
-	DatabaseURL string
+	Driver     string
+	DataSource string
 
 	IndexerAddrs        []string
 	IndexerInterval     time.Duration
@@ -92,9 +93,9 @@ func main() {
 	interruptChan := make(chan os.Signal, 1)
 	signal.Notify(interruptChan, os.Interrupt)
 
-	database, err := persistence.MakeDatabase(opFlags.DatabaseURL, logger)
+	database, err := persistence.MakeDatabase(opFlags.Driver, opFlags.DataSource, logger)
 	if err != nil {
-		logger.Sugar().Fatalf("Could not open the database at `%s`", opFlags.DatabaseURL, zap.Error(err))
+		logger.Sugar().Fatalf("Could not open the database at `%s`", opFlags.DataSource, zap.Error(err))
 	}
 
 	trawlingManager := dht.NewManager(opFlags.IndexerAddrs, opFlags.IndexerInterval, opFlags.IndexerMaxNeighbors)
@@ -115,7 +116,7 @@ func main() {
 			}
 
 		case md := <-metadataSink.Drain():
-			if err := database.AddNewTorrent(md.InfoHash, md.Name, md.Files); err != nil {
+			if err := database.AddNewTorrent(md.InfoHash, md.Name, md.Files, time.Now().Unix()); err != nil {
 				zap.L().Fatal("Could not add new torrent to the database",
 					util.HexField("infohash", md.InfoHash), zap.Error(err))
 			}
@@ -134,7 +135,8 @@ func main() {
 
 func parseFlags() (*opFlags, error) {
 	var cmdF struct {
-		DatabaseURL string `long:"database" description:"URL of the database."`
+		Driver     string `long:"driver"      description:"driver of the (magneticod) database"`
+		DataSource string `long:"database"    description:"data source of the (magneticod) database"`
 
 		IndexerAddrs        []string `long:"indexer-addr" description:"Address(es) to be used by indexing DHT nodes." default:"0.0.0.0:0"`
 		IndexerInterval     uint     `long:"indexer-interval" description:"Indexing interval in integer seconds." default:"1"`
@@ -153,17 +155,22 @@ func parseFlags() (*opFlags, error) {
 		return nil, err
 	}
 
-	if cmdF.DatabaseURL == "" {
-		opF.DatabaseURL =
-			"sqlite3://" +
+	if cmdF.Driver == "" {
+		opF.Driver = "sqlite3"
+	} else {
+		opF.Driver = cmdF.Driver
+	}
+
+	if cmdF.DataSource == "" {
+		opF.DataSource =
 				appdirs.UserDataDir("magneticod", "", "", false) +
 				"/database.sqlite3" +
 				"?_journal_mode=WAL" + // https://github.com/mattn/go-sqlite3#connection-string
 				"&_busy_timeout=3000" + // in milliseconds
-				"&_foreign_keys=true"
+				"&_foreign_keys=ON"
 
 	} else {
-		opF.DatabaseURL = cmdF.DatabaseURL
+		opF.DataSource = cmdF.DataSource
 	}
 
 	if err = checkAddrs(cmdF.IndexerAddrs); err != nil {

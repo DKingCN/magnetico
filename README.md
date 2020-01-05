@@ -36,6 +36,8 @@ central entity*.
 - Built-in lightweight web interface:
   - **magneticow** features a lightweight web interface to help you access the database without
     getting on your way.
+- Capability for big data:
+  - **magnetico** supports Elasticsearch v7.5.0 together with Kibana to handle big data.
 
 ### Screenshots
 *Click on the images to view full-screen.*

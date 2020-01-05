@@ -40,8 +40,9 @@ var templates map[string]*template.Template
 var database persistence.Database
 
 var opts struct {
-	Addr     string
-	Database string
+	Addr       string
+	Driver     string
+	DataSource string
 	// Credentials is nil when no-auth cmd-line flag is supplied.
 	Credentials        map[string][]byte // TODO: encapsulate credentials and mutex for safety
 	CredentialsRWMutex sync.RWMutex
@@ -172,7 +173,7 @@ func main() {
 	templates["homepage"] = template.Must(template.New("homepage").Funcs(templateFunctions).Parse(string(mustAsset("templates/homepage.html"))))
 
 	var err error
-	database, err = persistence.MakeDatabase(opts.Database, logger)
+	database, err = persistence.MakeDatabase(opts.Driver, opts.DataSource, logger)
 	if err != nil {
 		zap.L().Fatal("could not access to database", zap.Error(err))
 	}
@@ -204,10 +205,11 @@ func mustAsset(name string) []byte {
 
 func parseFlags() error {
 	var cmdFlags struct {
-		Addr     string `short:"a" long:"addr"        description:"Address (host:port) to serve on"  default:":8080"`
-		Database string `short:"d" long:"database"    description:"URL of the (magneticod) database"`
-		Cred     string `short:"c" long:"credentials" description:"Path to the credentials file"`
-		NoAuth   bool   `          long:"no-auth"     description:"Disables authorisation"`
+		Addr       string `short:"a" long:"addr"        description:"Address (host:port) to serve on"  default:":8080"`
+		Driver     string `long:"driver"      description:"driver of the (magneticod) database"`
+		DataSource string `long:"database"    description:"data source of the (magneticod) database"`
+		Cred       string `short:"c" long:"credentials" description:"Path to the credentials file"`
+		NoAuth     bool   `long:"no-auth"     description:"Disables authorisation"`
 
 		Verbose []bool `short:"v" long:"verbose" description:"Increases verbosity."`
 	}
@@ -222,14 +224,19 @@ func parseFlags() error {
 
 	opts.Addr = cmdFlags.Addr
 
-	if cmdFlags.Database == "" {
-		opts.Database =
-			"sqlite3://" +
+	if cmdFlags.Driver == "" {
+		opts.Driver = "sqlite3"
+	} else {
+		opts.Driver = cmdFlags.Driver
+	}
+
+	if cmdFlags.DataSource == "" {
+		opts.DataSource =
 				appdirs.UserDataDir("magneticod", "", "", false) +
 				"/database.sqlite3" +
 				"?_journal_mode=WAL" // https://github.com/mattn/go-sqlite3#connection-string
 	} else {
-		opts.Database = cmdFlags.Database
+		opts.DataSource = cmdFlags.DataSource
 	}
 
 	if !cmdFlags.NoAuth {
